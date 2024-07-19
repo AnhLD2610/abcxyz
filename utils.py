@@ -32,7 +32,7 @@ class Moment:
             for step, (instance, labels, ind) in enumerate(data_loader):
                 for k in instance.keys():
                     instance[k] = instance[k].to(self.config.device)
-                hidden, lmhead_output = encoder(instance)
+                hidden = encoder(instance)
                 fea = hidden.detach().cpu().data
                 self.update(ind, fea)
                 lbs.append(labels)  # shuffle=False
@@ -46,7 +46,7 @@ class Moment:
             for step, (instance, labels, ind) in enumerate(data_loader):
                 for k in instance.keys():
                     instance[k] = instance[k].to(self.config.device)
-                hidden, lmhead_output = encoder(instance)
+                hidden = encoder(instance)
                 fea = hidden.detach().cpu().data
                 self.update(ind, fea, is_memory)
                 lbs.append(labels)  # shuffle=False
@@ -64,7 +64,7 @@ class Moment:
         for step, (instance, labels, ind) in enumerate(data_loader):
             for k in instance.keys():
                 instance[k] = instance[k].to(self.config.device)
-            hidden, lmhead_output = encoder(instance)
+            hidden = encoder(instance)
             fea = hidden.detach().cpu().data
             self.update(ind, fea, is_memory=True)
 
