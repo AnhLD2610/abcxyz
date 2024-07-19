@@ -384,13 +384,17 @@ class Manager(object):
             list_seen_des = []
             for i in range(len(seen_proto)):
                 list_seen_des.append(seen_des_by_id[seen_relid[i]])
-            des_batch_instance = {'ids': [], 'mask': []}
-            des_batch_instance['ids'] = torch.tensor([des['ids'] for des in list_seen_des]).to(
-                self.config.device)
-            des_batch_instance['mask'] = torch.tensor([des['mask'] for des in list_seen_des]).to(
-                self.config.device)
 
-            rep_des = encoder(des_batch_instance, is_des=True) # (N, H)
+            rep_des = []
+            for i in range(len(list_seen_des)):
+                sample = {
+                    'ids' : torch.tensor([list_seen_des[i]['ids']]),
+                    'mask' : torch.tensor([list_seen_des[i]['mask']])
+                }
+                hidden = encoder(sample, is_des=True)
+                hidden = hidden.detach().cpu().data
+                rep_des.append(hidden)
+            rep_des = torch.cat(rep_des, dim=0)
 
             # Eval current task and history task
             test_data_initialize_cur, test_data_initialize_seen = [], []
