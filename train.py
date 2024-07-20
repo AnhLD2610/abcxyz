@@ -39,6 +39,20 @@ class Manager(object):
             dist.append(torch.unsqueeze(dist_i, 0)) # (N) --> (1,N)
         dist = torch.cat(dist, 0) # (B, N)
         return dist
+    def _cosine_similarity(self, x1, x2):
+        '''
+        input: x1 (B, H), x2 (N, H) ; N is the number of relations
+        return: (B, N)
+        '''
+        b = x1.size()[0]
+        cos = nn.CosineSimilarity(dim=1)
+        sim = []
+        for i in range(b):
+            sim_i = cos(x2, x1[i])
+            sim.append(torch.unsqueeze(sim_i, 0))
+        sim = torch.cat(sim, 0)
+        return sim
+    
 
     def get_memory_proto(self, encoder, dataset):
         '''
@@ -235,7 +249,7 @@ class Manager(object):
             hidden = encoder(instance)
             fea = hidden.cpu().data  # place in cpu to eval
             logits = -self._edist(fea, seen_proto)  # (B, N) ;N is the number of seen relations
-            logits_des = -self._edist(fea, rep_des)
+            logits_des = self._cosine_similarity(fea, rep_des)  # (B, N)
             logits = logits + logits_des
 
             cur_index = torch.argmax(logits, dim=1)  # (B)
@@ -388,8 +402,8 @@ class Manager(object):
             rep_des = []
             for i in range(len(list_seen_des)):
                 sample = {
-                    'ids' : torch.tensor([list_seen_des[i]['ids']]),
-                    'mask' : torch.tensor([list_seen_des[i]['mask']])
+                    'ids' : torch.tensor([list_seen_des[i]['ids']]).to(self.config.device),
+                    'mask' : torch.tensor([list_seen_des[i]['mask']]).to(self.config.device)
                 }
                 hidden = encoder(sample, is_des=True)
                 hidden = hidden.detach().cpu().data

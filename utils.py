@@ -8,7 +8,13 @@ from data_loader import get_data_loader_BERT
 from nltk import word_tokenize
 from retry import retry
 import google.generativeai as genai
-from openai import OpenAI
+
+
+from collections import deque
+api_key = [
+    
+]
+api_queue = deque(api_key)
 
 
 class Moment:
@@ -135,41 +141,39 @@ class Moment:
 
 # for openai
 # @retry(tries=10, delay=1)
-# def gpt(input, t=0, key=None):
-#     # time.sleep(1)
-#     # openai.api_key = key
-#     # completion = openai.ChatCompletion.create(
-#     #     model='gpt-3.5-turbo',
-#     #     messages=[{"role": "user", "content": input}],
-#     #     temperature=t
-#     # )
-#     # return completion.choices[0].message.content
-#     time.sleep(5)
-#     genai.configure(api_key='AIzaSyD88KoAKvnU2kAS8MhxMviy44d6OC7FPuE')
-#     # genai.configure(api_key='AIzaSyDBECQnpdlHjyw0m90b8nMRBsA_oaE0WXU')
-#     model = genai.GenerativeModel('gemini-1.5-pro-latest')
-#     response = model.generate_content(input)
-#     return response.text
-
-@retry(tries=10, delay=1)
 def gpt(input, t=0, key=None):
-    time.sleep(1)
+    MAX_TRIES = 15
+    # time.sleep(1)
     # openai.api_key = key
-    client = OpenAI()
-    completion = client.chat.completions.create(
-    model="gpt-3.5-turbo",
-    messages=[
-        # {"role": "system", "content": "You are a poetic assistant, skilled in explaining complex programming concepts with creative flair."},
-        {"role": "user", "content": input}
-    ]
-    )
-    print(completion.choices[0].message.content)
-    return completion.choices[0].message.content
+    # completion = openai.ChatCompletion.create(
+    #     model='gpt-3.5-turbo',
+    #     messages=[{"role": "user", "content": input}],
+    #     temperature=t
+    # )
+    # return completion.choices[0].message.content
+    while MAX_TRIES > 0:
+        try:
+            time.sleep(5)
+            cur_api_key = api_queue.popleft()
+            api_queue.append(cur_api_key)
+            genai.configure(api_key=cur_api_key)
+            # genai.configure(api_key= 'AIzaSyDBECQnpdlHjyw0m90b8nMRBsA_oaE0WXU')
+            model = genai.GenerativeModel('gemini-1.5-pro-latest')
+            response = model.generate_content(input)
+            return response.text
+        except:
+            MAX_TRIES -= 1
+    return ''
+    
+        
+
 
 @retry(tries=10, delay=1)
 def gemini(input, t=0, key=None):
     time.sleep(5)
-    genai.configure(api_key='AIzaSyD88KoAKvnU2kAS8MhxMviy44d6OC7FPuE')
+    cur_api_key = api_queue.popleft()
+    api_queue.append(cur_api_key)
+    genai.configure(api_key=cur_api_key)
     # genai.configure(api_key= 'AIzaSyDBECQnpdlHjyw0m90b8nMRBsA_oaE0WXU')
     model = genai.GenerativeModel('gemini-1.5-pro-latest')
     response = model.generate_content(input)
@@ -261,6 +265,7 @@ def prompt_input(rname, rdesc, sample=None, n=10):
 
 
 def gen_data(r2desc, rel2id, sample, n=10, t=0, key=None):
+    MAX_TRIES = 10
     rname = sample['relation']
     rdesc = r2desc[rname]
     print('####', rname, '####')
@@ -268,13 +273,15 @@ def gen_data(r2desc, rel2id, sample, n=10, t=0, key=None):
     print(input)
     output = gpt(input=input, t=t, key=key)
     print(output)
-    try:
-        parse_output = parse(rel2id, output)
-    except:
-        output = gpt(input=input + "\nRelation: ", t=t, key=key)
-        parse_output = parse(rel2id, output)
+    while MAX_TRIES > 0:
+        try:
+            parse_output = parse(rel2id, output)
+            return parse_output
+        except:
+            output = gpt(input=input + "\nRelation: ", t=t, key=key)
+            MAX_TRIES -= 1
 
-    return parse_output
+    return ''
 
 
 if __name__ == "__main__":
