@@ -5,6 +5,8 @@ from typing import Any, Iterable
 import torch
 from torch import Tensor, nn
 import numpy as np 
+from enum import Enum
+from torch.nn import functional as F
 # from sentence_transformers import util
 # from sentence_transformers.SentenceTransformer import SentenceTransformer
 
@@ -184,3 +186,96 @@ class MultipleNegativesRankingLoss(nn.Module):
 
     def get_config_dict(self) -> dict[str, Any]:
         return {"scale": self.scale, "similarity_fct": self.similarity_fct.__name__}
+
+
+
+class SiameseDistanceMetric(Enum):
+    """The metric for the contrastive loss"""
+
+    EUCLIDEAN = lambda x, y: F.pairwise_distance(x, y, p=2)
+    MANHATTAN = lambda x, y: F.pairwise_distance(x, y, p=1)
+    COSINE_DISTANCE = lambda x, y: 1 - F.cosine_similarity(x, y)
+
+
+
+class OnlineContrastiveLoss(nn.Module):
+    def __init__(
+        self,  distance_metric=SiameseDistanceMetric.COSINE_DISTANCE, margin: float = 0.5
+    ) -> None:
+        """
+        This Online Contrastive loss is similar to :class:`ConstrativeLoss`, but it selects hard positive (positives that
+        are far apart) and hard negative pairs (negatives that are close) and computes the loss only for these pairs.
+        This loss often yields better performances than ContrastiveLoss.
+
+        Args:
+            model: SentenceTransformer model
+            distance_metric: Function that returns a distance between
+                two embeddings. The class SiameseDistanceMetric contains
+                pre-defined metrics that can be used
+            margin: Negative samples (label == 0) should have a distance
+                of at least the margin value.
+
+        References:
+            - `Training Examples > Quora Duplicate Questions <../../examples/training/quora_duplicate_questions/README.html>`_
+
+        Requirements:
+            1. (anchor, positive/negative) pairs
+            2. Data should include hard positives and hard negatives
+
+        Relations:
+            - :class:`ContrastiveLoss` is similar, but does not use hard positive and hard negative pairs.
+            :class:`OnlineContrastiveLoss` often yields better results.
+
+        Inputs:
+            +-----------------------------------------------+------------------------------+
+            | Texts                                         | Labels                       |
+            +===============================================+==============================+
+            | (anchor, positive/negative) pairs             | 1 if positive, 0 if negative |
+            +-----------------------------------------------+------------------------------+
+
+        Example:
+            ::
+
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from datasets import Dataset
+
+                model = SentenceTransformer("microsoft/mpnet-base")
+                train_dataset = Dataset.from_dict({
+                    "sentence1": ["It's nice weather outside today.", "He drove to work."],
+                    "sentence2": ["It's so sunny.", "She walked to the store."],
+                    "label": [1, 0],
+                })
+                loss = losses.OnlineContrastiveLoss(model)
+
+                trainer = SentenceTransformerTrainer(
+                    model=model,
+                    train_dataset=train_dataset,
+                    loss=loss,
+                )
+                trainer.train()
+        """
+        super().__init__()
+        # self.model = model
+        self.margin = margin
+        self.distance_metric = distance_metric
+
+    def forward(self, embeddings_a, embeddings_b, size_average=False) -> Tensor:
+
+        distance_matrix = self.distance_metric(embeddings_a, embeddings_b)
+        range_labels = torch.arange(0, distance_matrix.size(0), device=distance_matrix.device)
+
+        total_loss = 0
+        for i in range(embeddings_a.size(0)):
+            labels = range_labels == i
+            negs = distance_matrix[labels == 0]
+            poss = distance_matrix[labels == 1]
+
+            # select hard positive and hard negative pairs
+            negative_pairs = negs[negs < (poss.max() if len(poss) > 1 else negs.mean())]
+            positive_pairs = poss[poss > (negs.min() if len(negs) > 1 else poss.mean())]
+
+            positive_loss = positive_pairs.pow(2).sum()
+            negative_loss = F.relu(self.margin - negative_pairs).pow(2).sum()
+            loss = positive_loss + negative_loss
+            total_loss += loss
+        return total_loss / embeddings_a.size(0) if size_average else total_loss
