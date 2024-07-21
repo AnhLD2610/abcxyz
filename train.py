@@ -19,7 +19,7 @@ from encoder import EncodingModel
 # import wandb
 
 from transformers import BertTokenizer
-from add_loss import MultipleNegativesRankingLoss
+from add_loss import MultipleNegativesRankingLoss,OnlineContrastiveLoss
 
 class Manager(object):
     def __init__(self, config) -> None:
@@ -146,7 +146,7 @@ class Manager(object):
                 hidden = encoder(instance) # b, dim
                 loss = self.moment.contrastive_loss(hidden, labels, is_memory)
                 labels_des = encoder(batch_instance, is_des = True) # b, num_compare, dim
-                loss_retrieval = MultipleNegativesRankingLoss()
+                loss_retrieval = OnlineContrastiveLoss()
                 loss2 = loss_retrieval(hidden, labels_des)
 
 
@@ -250,7 +250,7 @@ class Manager(object):
             fea = hidden.cpu().data  # place in cpu to eval
             logits = -self._edist(fea, seen_proto)  # (B, N) ;N is the number of seen relations
             logits_des = self._cosine_similarity(fea, rep_des)  # (B, N)
-            logits = logits + logits_des
+            logits = logits*(1+logits_des)
 
             cur_index = torch.argmax(logits, dim=1)  # (B)
             pred = []
