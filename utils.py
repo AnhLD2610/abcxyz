@@ -1,3 +1,5 @@
+%%writefile utils.py
+
 import torch
 import openai
 import random
@@ -8,6 +10,12 @@ from data_loader import get_data_loader_BERT
 from nltk import word_tokenize
 from retry import retry
 import google.generativeai as genai
+
+
+from collections import deque
+api_key = [
+]
+api_queue = deque(api_key)
 
 
 class Moment:
@@ -21,13 +29,13 @@ class Moment:
         self.sample_k = config.sample_k
         self.temperature = config.contrastive_temp
         self.m = config.margin
-    
+
     def init_moment(self, encoder, dataset, is_memory=False):
         encoder.eval()
         datalen = len(dataset)
         if not is_memory:
             self.features = torch.zeros(datalen, self.config.encoder_output_size)
-            data_loader = get_data_loader_BERT(self.config, dataset) # shuffle=False
+            data_loader = get_data_loader_BERT(self.config, dataset)  # shuffle=False
             lbs = []
             for step, (instance, labels, ind) in enumerate(data_loader):
                 for k in instance.keys():
@@ -35,13 +43,13 @@ class Moment:
                 hidden = encoder(instance)
                 fea = hidden.detach().cpu().data
                 self.update(ind, fea)
-                lbs.append(labels) # shuffle=False
+                lbs.append(labels)  # shuffle=False
             lbs = torch.cat(lbs)
             self.labels = lbs
         else:
             self.mem_samples = dataset
             self.mem_features = torch.zeros(datalen, self.config.encoder_output_size)
-            data_loader = get_data_loader_BERT(self.config, dataset) # shuffle=False
+            data_loader = get_data_loader_BERT(self.config, dataset)  # shuffle=False
             lbs = []
             for step, (instance, labels, ind) in enumerate(data_loader):
                 for k in instance.keys():
@@ -49,25 +57,24 @@ class Moment:
                 hidden = encoder(instance)
                 fea = hidden.detach().cpu().data
                 self.update(ind, fea, is_memory)
-                lbs.append(labels) # shuffle=False
+                lbs.append(labels)  # shuffle=False
             lbs = torch.cat(lbs)
-            self.mem_labels = lbs            
+            self.mem_labels = lbs
 
     def update(self, ind, feature, is_memory=False):
         if not is_memory:
             self.features[ind] = feature
         else:
             self.mem_features[ind] = feature
-    
+
     def update_allmem(self, encoder):
-            data_loader = get_data_loader_BERT(self.config, self.mem_samples, batch_size=64) # shuffle=False
-            for step, (instance, labels, ind) in enumerate(data_loader):
-                for k in instance.keys():
-                    instance[k] = instance[k].to(self.config.device)
-                hidden = encoder(instance)
-                fea = hidden.detach().cpu().data
-                self.update(ind, fea, is_memory=True)
-        
+        data_loader = get_data_loader_BERT(self.config, self.mem_samples, batch_size=64)  # shuffle=False
+        for step, (instance, labels, ind) in enumerate(data_loader):
+            for k in instance.keys():
+                instance[k] = instance[k].to(self.config.device)
+            hidden = encoder(instance)
+            fea = hidden.detach().cpu().data
+            self.update(ind, fea, is_memory=True)
 
     def get_mem_proto(self):
         cinds = []
@@ -97,46 +104,46 @@ class Moment:
                 sample_id = random.sample(idx, self.sample_k)
             else:  # sample number > total feature
                 sample_id = idx
-            ct_x = self.features[sample_id].to(self.config.device) # (N, H)
-            ct_y = self.labels[sample_id] # (N)
+            ct_x = self.features[sample_id].to(self.config.device)  # (N, H)
+            ct_y = self.labels[sample_id]  # (N)
 
         # l2 normalize
         x = F.normalize(x, p=2, dim=1)
         ct_x = F.normalize(ct_x, p=2, dim=1)
-        
-        t1 = torch.mm(x, ct_x.T) + 1 # 0 <= cos + 1 <= 2
+
+        t1 = torch.mm(x, ct_x.T) + 1  # 0 <= cos + 1 <= 2
         zeros = (torch.zeros_like(t1)).to(self.config.device)
         pos = self.m + 0.5 * t1
         neg = 1 - self.m + 0.5 * t1
         dot_product_tempered_pos = torch.where(pos > 0, pos * t1 / self.temperature, zeros)
         dot_product_tempered_neg = torch.where(neg > 0, neg * t1 / self.temperature, zeros)
-        
+
         exp_dot_tempered_pos = (
-            torch.exp(dot_product_tempered_pos - \
-                torch.max(dot_product_tempered_pos, dim=1, keepdim=True)[0].detach()) + 1e-5
+                torch.exp(dot_product_tempered_pos - \
+                          torch.max(dot_product_tempered_pos, dim=1, keepdim=True)[0].detach()) + 1e-5
         )
         exp_dot_tempered_neg = (
-            torch.exp(dot_product_tempered_neg - \
-                torch.max(dot_product_tempered_pos, dim=1, keepdim=True)[0].detach()) + 1e-5
-        ) 
+                torch.exp(dot_product_tempered_neg - \
+                          torch.max(dot_product_tempered_pos, dim=1, keepdim=True)[0].detach()) + 1e-5
+        )
         mask_combined_pos = (labels.unsqueeze(1).repeat(1, ct_y.shape[0]) == ct_y).to(self.config.device)
         mask_combined_neg = ~mask_combined_pos
         cardinality_per_samples = torch.sum(mask_combined_pos, dim=1)
 
         sum_temp = torch.sum(exp_dot_tempered_pos * mask_combined_pos, dim=1, keepdim=True) \
-            + torch.sum(exp_dot_tempered_neg * mask_combined_neg, dim=1, keepdim=True)
+                   + torch.sum(exp_dot_tempered_neg * mask_combined_neg, dim=1, keepdim=True)
         log_prob = -torch.log(exp_dot_tempered_pos / sum_temp)
-        supervised_contrastive_loss_per_sample = torch.sum(log_prob * mask_combined_pos, dim=1) / cardinality_per_samples
+        supervised_contrastive_loss_per_sample = torch.sum(log_prob * mask_combined_pos,
+                                                           dim=1) / cardinality_per_samples
         supervised_contrastive_loss = torch.mean(supervised_contrastive_loss_per_sample)
 
         return supervised_contrastive_loss
 
 
-
-
 # for openai
-@retry(tries=10, delay=1)
+# @retry(tries=10, delay=1)
 def gpt(input, t=0, key=None):
+    MAX_TRIES = 15
     # time.sleep(1)
     # openai.api_key = key
     # completion = openai.ChatCompletion.create(
@@ -145,27 +152,38 @@ def gpt(input, t=0, key=None):
     #     temperature=t
     # )
     # return completion.choices[0].message.content
-    time.sleep(5)
-    genai.configure(api_key = 'AIzaSyDQMnZxEo15O00QfDoSaSBrN2nXW3vs9yY' )
-    #genai.configure(api_key='AIzaSyDBECQnpdlHjyw0m90b8nMRBsA_oaE0WXU')
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
-    response = model.generate_content(input)
-    return response.text
-@retry(tries=10 , delay = 1)
-
-def gemini(input, t=0,key=None):
-    time.sleep(5)
-    genai.configure(api_key = 'AIzaSyDQMnZxEo15O00QfDoSaSBrN2nXW3vs9yY' )
-    #genai.configure(api_key= 'AIzaSyDBECQnpdlHjyw0m90b8nMRBsA_oaE0WXU')
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
-    response = model.generate_content(input)
-    return response.text
-
-
+    while MAX_TRIES > 0:
+        try:
+            time.sleep(5)
+            cur_api_key = api_queue.popleft()
+            api_queue.append(cur_api_key)
+            genai.configure(api_key=cur_api_key)
+            # genai.configure(api_key= 'AIzaSyDBECQnpdlHjyw0m90b8nMRBsA_oaE0WXU')
+            model = genai.GenerativeModel('gemini-1.5-pro-latest')
+            response = model.generate_content(input)
+            return response.text
+        except:
+            MAX_TRIES -= 1
+    return ''
     
+        
+
+
+@retry(tries=10, delay=1)
+def gemini(input, t=0, key=None):
+    time.sleep(5)
+    cur_api_key = api_queue.popleft()
+    api_queue.append(cur_api_key)
+    genai.configure(api_key=cur_api_key)
+    # genai.configure(api_key= 'AIzaSyDBECQnpdlHjyw0m90b8nMRBsA_oaE0WXU')
+    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    response = model.generate_content(input)
+    return response.text
+
+
 def parse(rel2id, text):
     cons = ['Relation:', 'Context:', 'Head Entity:', 'Tail Entity:']
-    lens = [ len(item) for item in cons]
+    lens = [len(item) for item in cons]
     parse_text = []
 
     temp = text
@@ -173,23 +191,23 @@ def parse(rel2id, text):
         parse_item = {}
 
         i = temp.find(cons[0])
-        temp = temp[i+lens[0]:]
+        temp = temp[i + lens[0]:]
         i = temp.find(cons[1])
         r = temp[:i].strip()
-        temp = temp[i+lens[1]:]
+        temp = temp[i + lens[1]:]
         i = temp.find(cons[2])
         c = temp[:i].strip()
-        temp = temp[i+lens[2]:]
+        temp = temp[i + lens[2]:]
         i = temp.find(cons[3])
         h = temp[:i].strip()
-        temp = temp[i+lens[3]:]
+        temp = temp[i + lens[3]:]
         i = temp.find('\n')
         t = temp[:i].strip()
         i = temp.find(cons[0])
 
         r = r.split('\n')[0]
         r = r.replace('**', '')
-        r = r.replace('\n','')
+        r = r.replace('\n', '')
         r = r.strip()
 
         parse_item['relation'] = rel2id[r]
@@ -206,7 +224,7 @@ def parse(rel2id, text):
         try:
             h2 = tokens.index(h_tokens[-1])
         except Exception:
-            h2 = h1        
+            h2 = h1
         try:
             t1 = tokens.index(t_tokens[0])
         except Exception:
@@ -214,7 +232,7 @@ def parse(rel2id, text):
         try:
             t2 = tokens.index(t_tokens[-1])
         except Exception:
-            t2 = t1             
+            t2 = t1
         parse_item['h'] = [headent, '0', [[h1, h2]]]
         parse_item['t'] = [tailent, '0', [[t1, t2]]]
 
@@ -226,39 +244,45 @@ def parse(rel2id, text):
 
     return parse_text
 
+
 def prompt_input(rname, rdesc, sample=None, n=10):
     pre_input = 'You are a data scientist working on a relation extraction task. Please do the following task and do not give output in the markdown format.'
     input = ''
     if sample == None:
         input = 'One sample in relation extraction datasets consists of a relation, a context, a pair of head and tail entities in the context.The head entity has the relation with the tail entity. Generate ' \
-            + str(n) + ' diversity samples (must have full : Relation , Context , Head Entity , Tail Entity) for the relation "'+ rname \
-            + '" which means ' + rdesc \
-            + ', and indicate the head entity and tail entity in the following format:\n' \
-            + 'Relation: xxx\nContext: xxx\nHead Entity: xxx\nTail Entity: xxx'
+                + str(
+            n) + ' diversity samples (must have full : Relation , Context , Head Entity , Tail Entity) for the relation "' + rname \
+                + '" which means ' + rdesc \
+                + ', and indicate the head entity and tail entity in the following format:\n' \
+                + 'Relation: xxx\nContext: xxx\nHead Entity: xxx\nTail Entity: xxx'
     else:
         input = 'One sample in relation extraction datasets consists of a relation, a context, a pair of head and tail entities in the context.The head entity has the relation with the tail entity.\n' \
-            + 'Relation "' + rname + '" means ' + rdesc + '.\nHere is an example:\n' \
-            + 'Relation: ' + rname + '\nContext: ' + sample['tokens'] + '\nHead Entity: ' + sample['h'] + '\nTail Entity: ' + sample['t'] + '\n' \
-            + 'Please generate ' + str(n) + ' diversity samples (must have full : Relation , Context , Head Entity , Tail Entity) like the above example for the relation "'+ rname + '":'
+                + 'Relation "' + rname + '" means ' + rdesc + '.\nHere is an example:\n' \
+                + 'Relation: ' + rname + '\nContext: ' + sample['tokens'] + '\nHead Entity: ' + sample[
+                    'h'] + '\nTail Entity: ' + sample['t'] + '\n' \
+                + 'Please generate ' + str(
+            n) + ' diversity samples (must have full : Relation , Context , Head Entity , Tail Entity) like the above example for the relation "' + rname + '":'
     return pre_input + input
 
 
 def gen_data(r2desc, rel2id, sample, n=10, t=0, key=None):
+    MAX_TRIES = 10
     rname = sample['relation']
     rdesc = r2desc[rname]
-    print('####', rname ,'####')
+    print('####', rname, '####')
     input = prompt_input(rname, rdesc, sample=sample, n=n)
     print(input)
     output = gpt(input=input, t=t, key=key)
     print(output)
-    try:
-        parse_output = parse(rel2id, output)
-    except:
-        output = gpt(input=input + "\nRelation: ", t=t, key=key)
-        parse_output = parse(rel2id, output)
+    while MAX_TRIES > 0:
+        try:
+            parse_output = parse(rel2id, output)
+            return parse_output
+        except:
+            output = gpt(input=input + "\nRelation: ", t=t, key=key)
+            MAX_TRIES -= 1
 
-
-    return parse_output
+    return ''
 
 
 if __name__ == "__main__":
@@ -294,7 +318,6 @@ Context: The musician, Bob Marley, was born in Jamaica and spent most of his lif
 Head Entity: Bob Marley
 Tail Entity: Jamaica """
     print(parse(s))
-
 
 
 

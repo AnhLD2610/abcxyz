@@ -39,6 +39,20 @@ class Manager(object):
             dist.append(torch.unsqueeze(dist_i, 0)) # (N) --> (1,N)
         dist = torch.cat(dist, 0) # (B, N)
         return dist
+    def _cosine_similarity(self, x1, x2):
+        '''
+        input: x1 (B, H), x2 (N, H) ; N is the number of relations
+        return: (B, N)
+        '''
+        b = x1.size()[0]
+        cos = nn.CosineSimilarity(dim=1)
+        sim = []
+        for i in range(b):
+            sim_i = cos(x2, x1[i])
+            sim.append(torch.unsqueeze(sim_i, 0))
+        sim = torch.cat(sim, 0)
+        return sim
+    
 
     def get_memory_proto(self, encoder, dataset):
         '''
@@ -211,6 +225,56 @@ class Manager(object):
             sys.stdout.flush()        
         print('')
         return corrects / total
+    def eval_encoder_proto_des(self, encoder, seen_proto, seen_relid, test_data, rep_des):
+        """
+        Args:
+            encoder: Encoder
+            seen_proto: seen prototypes. NxH tensor
+            seen_relid: relation id of protoytpes
+            test_data: test data
+            rep_des: representation of seen relation description. N x H tensor
+
+        Returns:
+
+        """
+        batch_size = 16
+        test_loader = get_data_loader_BERT(self.config, test_data, False, False, batch_size)
+
+        corrects = 0.0
+        total = 0.0
+        encoder.eval()
+        for batch_num, (instance, label, _) in enumerate(test_loader):
+            for k in instance.keys():
+                instance[k] = instance[k].to(self.config.device)
+            hidden = encoder(instance)
+            fea = hidden.cpu().data  # place in cpu to eval
+            logits = -self._edist(fea, seen_proto)  # (B, N) ;N is the number of seen relations
+            logits_des = self._cosine_similarity(fea, rep_des)  # (B, N)
+#             logits = logits*(1 + logits_des)
+            # combine using rrf
+            
+            logits_ranks = torch.argsort(torch.argsort(-logits, dim=1), dim=1) + 1
+            logits_des_ranks = torch.argsort(torch.argsort(-logits_des, dim=1), dim=1) + 1
+            rrf_logits = 1.0 / logits_ranks
+            rrf_logits_des = 1.0 / logits_des_ranks
+            logits = 0.7*rrf_logits + 0.3*rrf_logits_des
+            logits = logits + logits_des
+            
+            cur_index = torch.argmax(logits, dim=1)  # (B)
+            pred = []
+            for i in range(cur_index.size()[0]):
+                pred.append(seen_relid[int(cur_index[i])])
+            pred = torch.tensor(pred)
+
+            correct = torch.eq(pred, label).sum().item()
+            acc = correct / batch_size
+            corrects += correct
+            total += batch_size
+            sys.stdout.write('[EVAL] batch: {0:4} | acc: {1:3.2f}%,  total acc: {2:3.2f}%   ' \
+                             .format(batch_num, 100 * acc, 100 * (corrects / total)) + '\r')
+            sys.stdout.flush()
+        print('')
+        return corrects / total
 
     def _get_sample_text(self, data_path, index):
         sample = {}
@@ -252,6 +316,7 @@ class Manager(object):
         memory_samples = {}
         data_generation = []
         seen_des = {}
+
 
         self.unused_tokens = ['[unused0]', '[unused1]', '[unused2]', '[unused3]']
         self.unused_token = '[unused0]'
@@ -328,17 +393,39 @@ class Manager(object):
                 seen_proto.append(proto)
             seen_proto = torch.stack(seen_proto, dim=0)
 
+            # get seen relation id
+            seen_relid = []
+            for rel in seen_relations:
+                seen_relid.append(self.rel2id[rel])
+
+
+            # get representation of seen description
+            seen_des_by_id = {}
+            for rel in seen_relations:
+                seen_des_by_id[self.rel2id[rel]] = seen_des[rel]
+            list_seen_des = []
+            for i in range(len(seen_proto)):
+                list_seen_des.append(seen_des_by_id[seen_relid[i]])
+
+            rep_des = []
+            for i in range(len(list_seen_des)):
+                sample = {
+                    'ids' : torch.tensor([list_seen_des[i]['ids']]).to(self.config.device),
+                    'mask' : torch.tensor([list_seen_des[i]['mask']]).to(self.config.device)
+                }
+                hidden = encoder(sample, is_des=True)
+                hidden = hidden.detach().cpu().data
+                rep_des.append(hidden)
+            rep_des = torch.cat(rep_des, dim=0)
+
             # Eval current task and history task
             test_data_initialize_cur, test_data_initialize_seen = [], []
             for rel in current_relations:
                 test_data_initialize_cur += test_data[rel]
             for rel in seen_relations:
                 test_data_initialize_seen += historic_test_data[rel]
-            seen_relid = []
-            for rel in seen_relations:
-                seen_relid.append(self.rel2id[rel])
-            ac1 = self.eval_encoder_proto(encoder, seen_proto, seen_relid, test_data_initialize_cur)
-            ac2 = self.eval_encoder_proto(encoder, seen_proto, seen_relid, test_data_initialize_seen)
+            ac1 = self.eval_encoder_proto_des(encoder, seen_proto, seen_relid, test_data_initialize_cur, rep_des)
+            ac2 = self.eval_encoder_proto_des(encoder, seen_proto, seen_relid, test_data_initialize_seen, rep_des)
             cur_acc_num.append(ac1)
             total_acc_num.append(ac2)
             cur_acc.append('{:.4f}'.format(ac1))
