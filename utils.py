@@ -1,5 +1,3 @@
-%%writefile utils.py
-
 import torch
 import openai
 import random
