@@ -250,7 +250,15 @@ class Manager(object):
             fea = hidden.cpu().data  # place in cpu to eval
             logits = -self._edist(fea, seen_proto)  # (B, N) ;N is the number of seen relations
             logits_des = self._cosine_similarity(fea, rep_des)  # (B, N)
-            logits = logits*(1+logits_des)
+
+
+            # logits = logits*(1+logits_des)
+            # combine using rrf
+            logits_ranks = torch.argsort(torch.argsort(-logits, dim=1), dim=1) + 1
+            logits_des_ranks = torch.argsort(torch.argsort(-logits_des, dim=1), dim=1) + 1
+            rrf_logits = 1.0 / logits_ranks
+            rrf_logits_des = 1.0 / logits_des_ranks
+            logits = rrf_logits + rrf_logits_des
 
             cur_index = torch.argmax(logits, dim=1)  # (B)
             pred = []
