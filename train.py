@@ -385,7 +385,7 @@ if __name__ == '__main__':
     if config.task_name == 'FewRel':
         config.rel_index = './data/CFRLFewRel/rel_index.npy'
         config.relation_name = './data/CFRLFewRel/relation_name.txt'
-        config.relation_description = './data/CFRLFewRel/relation_description.txt'
+        config.relation_description = './data/CFRLFewRel/relation_description_detail.txt'
         if config.num_k == 5:
             config.rel_cluster_label = './data/CFRLFewRel/CFRLdata_10_100_10_5/rel_cluster_label_0.npy'
             config.training_data = './data/CFRLFewRel/CFRLdata_10_100_10_5/train_0.txt'
@@ -399,7 +399,7 @@ if __name__ == '__main__':
     else:
         config.rel_index = './data/CFRLTacred/rel_index.npy'
         config.relation_name = './data/CFRLTacred/relation_name.txt'
-        config.relation_description = './data/CFRLTacred/relation_description.txt'
+        config.relation_description = './data/CFRLTacred/relation_description_detail.txt'
         if config.num_k == 5:
             config.rel_cluster_label = './data/CFRLTacred/CFRLdata_6_100_5_5/rel_cluster_label_0.npy'
             config.training_data = './data/CFRLTacred/CFRLdata_6_100_5_5/train_0.txt'
