@@ -5,9 +5,12 @@ import sys
 import copy
 import numpy as np
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.cluster import KMeans
 from config import Config
+from sklearn.preprocessing import normalize
+
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -42,7 +45,7 @@ class Manager(object):
     def _cosine_similarity(self, x1, x2):
         '''
         input: x1 (B, H), x2 (N, H) ; N is the number of relations
-        return: (B, N)
+        return: (B, N) 
         '''
         b = x1.size()[0]
         cos = nn.CosineSimilarity(dim=1)
@@ -316,6 +319,7 @@ class Manager(object):
         memory_samples = {}
         data_generation = []
         seen_des = {}
+        negative_index = {} # key: relation id, value: list of negative index
 
 
         self.unused_tokens = ['[unused0]', '[unused1]', '[unused2]', '[unused3]']
@@ -416,7 +420,30 @@ class Manager(object):
                 hidden = encoder(sample, is_des=True)
                 hidden = hidden.detach().cpu().data
                 rep_des.append(hidden)
-            rep_des = torch.cat(rep_des, dim=0)
+            rep_des = torch.cat(rep_des, dim=0) # (N, H)
+
+            # Convert tensor to NumPy array
+            rep_des_np = rep_des.numpy()
+
+            # Normalize the vectors
+            rep_des_normalized = normalize(rep_des_np, norm='l2')
+
+            # Perform K-means clustering using cosine similarity
+            n_clusters = len(seen_relations)/5  # Change this to the desired number of clusters
+            kmeans = KMeans(n_clusters=n_clusters, random_state=0)
+            kmeans.fit(rep_des_normalized)
+
+            # Get the cluster labels
+            cluster_labels = kmeans.labels_.tolist()
+
+            # Train on memory data of each cluster
+            if step > 0:
+                cluster_data = []* n_clusters
+                for i in range(len(memory_data_initialize)):
+                    d = 1
+
+
+
 
             # Eval current task and history task
             test_data_initialize_cur, test_data_initialize_seen = [], []
