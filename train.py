@@ -177,7 +177,7 @@ class Manager(object):
                 # wandb.log({'infoNCE_loss': infoNCE_loss, 'loss': loss})
                 # loss = 0.8*loss + infoNCE_loss
 
-                loss = loss + loss2
+                loss = 0*loss + loss2
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
