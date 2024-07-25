@@ -175,15 +175,22 @@ class MultipleNegativesRankingLoss(nn.Module):
 
 #     The embeddings for the anchor sentences are stored in embeddings_a, and the embeddings for the positive sentences are concatenated into embeddings_b.
 # The similarity scores between embeddings_a and embeddings_b are computed using the provided similarity function and then scaled.
-    def forward(self, embeddings_a, embeddings_b) -> Tensor:
+    def forward(self, embeddings_a, embeddings_b, labels) -> Tensor:
         # reps = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
         # embeddings_a = reps[0]
         # embeddings_b = torch.cat(reps[1:])
         scores = self.similarity_fct(embeddings_a, embeddings_b) * self.scale
         # Example a[i] should match with b[i]
-        range_labels = torch.arange(0, scores.size(0), device=scores.device)
-        return self.cross_entropy_loss(scores, range_labels)
 
+        #  print(scores.shape) b*b
+        # range_labels.shape = b
+        # range_labels = torch.arange(0, scores.size(0), device=scores.device)
+        
+        return self.cross_entropy_loss(scores, labels)
+
+
+
+    
     def get_config_dict(self) -> dict[str, Any]:
         return {"scale": self.scale, "similarity_fct": self.similarity_fct.__name__}
 
@@ -259,14 +266,19 @@ class OnlineContrastiveLoss(nn.Module):
         self.margin = margin
         self.distance_metric = distance_metric
 
-    def forward(self, embeddings_a, embeddings_b, size_average=False) -> Tensor:
+    def forward(self, embeddings_a, embeddings_b, labels: Tensor, size_average=False) -> Tensor:
+    # def forward(self, embeddings_a, embeddings_b, size_average=False) -> Tensor:
+
 
         distance_matrix = self.distance_metric(embeddings_a, embeddings_b)
-        range_labels = torch.arange(0, distance_matrix.size(0), device=distance_matrix.device)
+        # print(embeddings_a.shape)
+        # print(embeddings_b.shape)
+        # print(distance_matrix.shape)
+        # range_labels = torch.arange(0, distance_matrix.size(0), device=distance_matrix.device)
 
         total_loss = 0
         for i in range(embeddings_a.size(0)):
-            labels = range_labels == i
+            # labels = range_labels == i
             negs = distance_matrix[labels == 0]
             poss = distance_matrix[labels == 1]
 
@@ -279,3 +291,32 @@ class OnlineContrastiveLoss(nn.Module):
             loss = positive_loss + negative_loss
             total_loss += loss
         return total_loss / embeddings_a.size(0) if size_average else total_loss
+
+        # distance_matrix_ab = self.distance_metric(embeddings_a, embeddings_b) # 16
+        # distance_matrix_c = self.distance_metric(embeddings_c, embeddings_c) # 16
+        
+        # range_labels = torch.arange(0, distance_matrix_ab.size(0), device=distance_matrix_ab.device)
+        # # print('12')
+        # # print(distance_matrix_c.shape)
+        # # print('123')
+        # # print(distance_matrix_ab.shape)
+        # total_loss = 0
+        # for i in range(embeddings_a.size(0)):
+        #     labels = range_labels == i
+        #     negs_c = distance_matrix_c[labels == 0]
+        #     poss_c = distance_matrix_c[labels == 1]
+
+        #     # Select hard positive and hard negative pairs using embeddings_c
+        #     negative_pairs_idx = (negs_c < (poss_c.max() if len(poss_c) > 1 else negs_c.mean())).nonzero(as_tuple=True)[0]
+        #     positive_pairs_idx = (poss_c > (negs_c.min() if len(negs_c) > 1 else poss_c.mean())).nonzero(as_tuple=True)[0]
+
+        #     # Calculate loss using distances from embeddings_a and embeddings_b
+        #     negative_pairs = embeddings_a[negative_pairs_idx]
+        #     positive_pairs = embeddings_a[positive_pairs_idx]
+
+        #     positive_loss = positive_pairs.pow(2).sum()
+        #     negative_loss = F.relu(self.margin - negative_pairs).pow(2).sum()
+        #     loss = positive_loss + negative_loss
+        #     total_loss += loss
+
+        # return total_loss / embeddings_a.size(0) if size_average else total_loss

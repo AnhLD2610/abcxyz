@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.cluster import KMeans
 from config import Config
+import torch.nn.functional as F
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -19,7 +20,7 @@ from encoder import EncodingModel
 # import wandb
 
 from transformers import BertTokenizer
-from add_loss import MultipleNegativesRankingLoss
+from add_loss import MultipleNegativesRankingLoss, OnlineContrastiveLoss
 
 class Manager(object):
     def __init__(self, config) -> None:
@@ -138,46 +139,68 @@ class Manager(object):
                 batch_instance['ids'] = torch.tensor([seen_des[self.id2rel[label.item()]]['ids'] for label in labels]).to(self.config.device)
                 batch_instance['mask'] = torch.tensor([seen_des[self.id2rel[label.item()]]['mask'] for label in labels]).to(self.config.device)
 
+                n = len(labels)
+                new_matrix_labels = np.zeros((n, n), dtype=float)
+
+                # Fill the matrix according to the label comparison
+                for i in range(n):
+                    for j in range(n):
+                        if labels[i] == labels[j]:
+                            new_matrix_labels[i][j] = 1.0
+
+                new_matrix_labels_tensor = torch.tensor(new_matrix_labels).to(config.device)
+                
+                # print(new_matrix_labels_tensor)
 
                     # batch_instance['ids'] = torch.tensor([item[0]['ids'] for item in seen_des[self.id2rel[label.items()]]])
                     # seen_des[self.id2rel[label.items()]]
                     # cur_des.appendseen_des[self.id2rel[label.items()]]
+
+                # labels tensor shape b*b
+                
                 
                 hidden = encoder(instance) # b, dim
                 loss = self.moment.contrastive_loss(hidden, labels, is_memory)
-                labels_des = encoder(batch_instance, is_des = True) # b, num_compare, dim
+                labels_des = encoder(batch_instance, is_des = True) # b, dim
                 loss_retrieval = MultipleNegativesRankingLoss()
-                loss2 = loss_retrieval(hidden, labels_des)
+                loss2 = loss_retrieval(hidden, labels_des, new_matrix_labels_tensor)
 
 
                 # anchor chính là cái token mask , mấy cái defination là positive negative 
 
                 # compute infonceloss
-                # infoNCE_loss = 0
-                # list_labels = labels.cpu().numpy().tolist()
+                infoNCE_loss = 0
+                list_labels = labels.cpu().numpy().tolist()
 
-                # for j in range(len(list_labels)):
-                #     negative_sample_indexs = np.where(np.array(list_labels) != list_labels[j])[0]
+                for j in range(len(list_labels)):
+                    negative_sample_indexs = np.where(np.array(list_labels) != list_labels[j])[0]
                     
-                #     positive_hidden = hidden[j].unsqueeze(0)
-                #     negative_hidden = hidden[negative_sample_indexs]
+                    positive_hidden = hidden[j].unsqueeze(0)
+                    negative_hidden = hidden[negative_sample_indexs]
 
-                #     positive_lmhead_output = lmhead_output[j].unsqueeze(0)
+                    positive_lmhead_output = labels_des[j].unsqueeze(0)
 
-                #     f_pos = encoder.infoNCE_f(positive_lmhead_output, positive_hidden)
-                #     f_neg = encoder.infoNCE_f(positive_lmhead_output, negative_hidden)
-                #     f_concat = torch.cat([f_pos, f_neg], dim=1).squeeze()
-                #     f_concat = torch.log(torch.max(f_concat , torch.tensor(1e-9).to(self.config.device)))
-                #     try:
-                #         infoNCE_loss += -torch.log(softmax(f_concat)[0])
-                #     except:
-                #         None
+                    f_pos = encoder.infoNCE_f(positive_lmhead_output, positive_hidden)
+                    f_neg = encoder.infoNCE_f(positive_lmhead_output, negative_hidden)
+                    f_concat = torch.cat([f_pos, f_neg], dim=1).squeeze()
+                    f_concat = torch.log(torch.max(f_concat , torch.tensor(1e-9).to(self.config.device)))
+                    try:
+                        infoNCE_loss += -torch.log(F.softmax(f_concat)[0])
+                    except:
+                        None
 
-                # infoNCE_loss = infoNCE_loss / len(list_labels)
+                infoNCE_loss = infoNCE_loss / len(list_labels)
                 # wandb.log({'infoNCE_loss': infoNCE_loss, 'loss': loss})
                 # loss = 0.8*loss + infoNCE_loss
 
-                loss = loss + loss2
+                # loss3 = loss_retrieval(labels_des, hidden, new_matrix_labels_tensor)
+
+                loss = loss + loss2 + infoNCE_loss
+                # if is_memory:
+                # loss3 = OnlineContrastiveLoss()
+                # loss3 = loss3(hidden, labels_des)
+                # loss += 0.5*loss3
+                
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()

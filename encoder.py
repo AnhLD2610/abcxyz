@@ -26,7 +26,7 @@ class EncodingModel(nn.Module):
         self._init_prompt()
         self.prompt_ids = torch.LongTensor(list(range(self.prompt_lens))).to(self.config.device)
 
-        self.info_nce_fc = nn.Linear(config.vocab_size , self.embedding_dim).to(config.device)
+        self.info_nce_fc = nn.Linear(self.embedding_dim , self.embedding_dim).to(config.device)
 
 
     def infoNCE_f(self, V, C):
