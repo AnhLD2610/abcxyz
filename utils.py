@@ -12,17 +12,6 @@ import google.generativeai as genai
 
 from collections import deque
 api_key = [ 
-    'AIzaSyD88KoAKvnU2kAS8MhxMviy44d6OC7FPuE',
-    'AIzaSyB9lOlZrrGCLXusNF64WmFrN98cverLm34',
-    'AIzaSyBhhtj0QazGHw-rC-UT2DaNe31ewxX1H8A',
-    'AIzaSyDbOVZpt_IPnLGAj0lefBgM2gqsSnmHHRQ',
-    'AIzaSyDDFA8lyMRwKBYI59WESPwURy-No6hmK8o',
-    'AIzaSyBH6akgsXP4-5Lp96DAeepBkcXlIsBtZTo',
-    'AIzaSyCs38oyPylC1sGXcX7IQYaltdHcKdAm9_g',
-    'AIzaSyBbTifY_E3QwWha3Z274JXzhsWeYSPIvcE',
-    'AIzaSyABcVXcKZwNiHUr4rK4JIGHLSxnqjv03_Q',
-    'AIzaSyCz2PjrQ_GwQSHCCX_UKCVHt2orn7JaTYw',
-    'AIzaSyC_lW_DujJAOvhFhnxvxeQVj0VthhBsGjo',
 ]
 api_queue = deque(api_key)
 
