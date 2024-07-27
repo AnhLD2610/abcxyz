@@ -243,7 +243,7 @@ class Manager(object):
 
                 # loss3 = criterion(features, new_matrix_labels_tensor)
 
-                loss = loss + loss2 + 0.5*infoNCE_loss
+                loss = loss + 2.0*loss2 + 0.5*infoNCE_loss
                 # if is_memory:
                 # loss3 = OnlineContrastiveLoss()
                 # loss3 = loss3(hidden, labels_des)
