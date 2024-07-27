@@ -143,10 +143,10 @@ class Manager(object):
                 new_matrix_labels = np.zeros((n, n), dtype=float)
 
                 # Fill the matrix according to the label comparison
-                for i in range(n):
+                for i1 in range(n):
                     for j in range(n):
-                        if labels[i] == labels[j]:
-                            new_matrix_labels[i][j] = 1.0
+                        if labels[i1] == labels[j]:
+                            new_matrix_labels[i1][j] = 1.0
 
                 new_matrix_labels_tensor = torch.tensor(new_matrix_labels).to(config.device)
                 
@@ -162,6 +162,8 @@ class Manager(object):
                 hidden = encoder(instance) # b, dim
                 loss = self.moment.contrastive_loss(hidden, labels, is_memory)
                 labels_des = encoder(batch_instance, is_des = True) # b, dim
+
+
                 loss_retrieval = MultipleNegativesRankingLoss()
                 loss2 = loss_retrieval(hidden, labels_des, new_matrix_labels_tensor)
 
@@ -180,22 +182,68 @@ class Manager(object):
 
                     positive_lmhead_output = labels_des[j].unsqueeze(0)
 
-                    f_pos = encoder.infoNCE_f(positive_lmhead_output, positive_hidden)
-                    f_neg = encoder.infoNCE_f(positive_lmhead_output, negative_hidden)
+                    # f_pos = encoder.infoNCE_f(positive_hidden, positive_hidden)
+                    # f_neg = encoder.infoNCE_f(negative_hidden, negative_hidden)
+                    # print(positive_hidden.shape) # 1,768
+                    # print(negative_hidden.shape) # 11,768 
+
+                    f_pos = torch.matmul(positive_lmhead_output, positive_hidden.T)  # Shape: (1, 1)
+                    f_neg = torch.matmul(positive_lmhead_output, negative_hidden.T)  # Shape: (1, N)
+
+                    # print(f_pos.shape)
+                    # print(f_neg.shape)
                     f_concat = torch.cat([f_pos, f_neg], dim=1).squeeze()
+
                     f_concat = torch.log(torch.max(f_concat , torch.tensor(1e-9).to(self.config.device)))
+                    # print(f_concat.shape)
                     try:
                         infoNCE_loss += -torch.log(F.softmax(f_concat)[0])
+                        # print(F.softmax(f_concat, dim = 0)[0].shape)
+                        # print(infoNCE_loss.shape)
+
                     except:
                         None
 
                 infoNCE_loss = infoNCE_loss / len(list_labels)
+
+                # infoNCE_loss = 0
+                # list_labels = labels.cpu().numpy().tolist()
+
+                # for j in range(len(list_labels)):
+                #     negative_sample_indexs = np.where(np.array(list_labels) != list_labels[j])[0]
+                    
+                #     positive_hidden = hidden[j].unsqueeze(0)
+                #     print(positive_hidden.shape) # 1,768 
+                #     negative_hidden = hidden[negative_sample_indexs]
+
+                #     positive_lmhead_output = labels_des[j].unsqueeze(0)
+                #     print(positive_lmhead_output.shape) # 1,768 
+                #     f_pos = encoder.infoNCE_f(positive_lmhead_output, positive_hidden)
+                #     print(f_pos.shape) # 1,1
+                #     f_neg = encoder.infoNCE_f(positive_lmhead_output, negative_hidden)
+                #     print(f_neg.shape) # 1,14
+                #     f_concat = torch.cat([f_pos, f_neg], dim=1).squeeze()
+                #     print(f_concat.shape)
+                #     f_concat = torch.log(torch.max(f_concat , torch.tensor(1e-9).to(self.config.device)))
+                #     try:
+                #         infoNCE_loss += -torch.log(F.softmax(f_concat)[0])
+                #     except:
+                #         None
+
+                # infoNCE_loss = infoNCE_loss / len(list_labels)
+
                 # wandb.log({'infoNCE_loss': infoNCE_loss, 'loss': loss})
                 # loss = 0.8*loss + infoNCE_loss
 
                 # loss3 = loss_retrieval(labels_des, hidden, new_matrix_labels_tensor)
 
-                loss = loss + loss2 + infoNCE_loss
+                # features = torch.stack([hidden, labels_des], dim=1)
+               
+                # criterion = SupConLoss(temperature=0.07)
+
+                # loss3 = criterion(features, new_matrix_labels_tensor)
+
+                loss = loss + loss2 + 0.5*infoNCE_loss
                 # if is_memory:
                 # loss3 = OnlineContrastiveLoss()
                 # loss3 = loss3(hidden, labels_des)
