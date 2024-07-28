@@ -506,7 +506,6 @@ class Manager(object):
 
         torch.cuda.empty_cache()
         # save model
-        # torch.save(encoder.state_dict(), "./checkpoints/encoder.pth")
         return total_acc_num
 
 
