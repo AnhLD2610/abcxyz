@@ -13,6 +13,7 @@ import torch.nn.functional as F
 import warnings
 warnings.filterwarnings("ignore")
 
+
 from sampler import data_sampler_CFRL
 from data_loader import get_data_loader_BERT
 from utils import Moment, gen_data
@@ -20,7 +21,7 @@ from encoder import EncodingModel
 # import wandb
 
 from transformers import BertTokenizer
-from add_loss import MultipleNegativesRankingLoss, OnlineContrastiveLoss
+from add_loss import MultipleNegativesRankingLoss, BatchHardSoftMarginTripletLoss
 
 class Manager(object):
     def __init__(self, config) -> None:
@@ -124,6 +125,7 @@ class Manager(object):
         encoder.train()
         epoch = self.config.epoch_mem if is_memory else self.config.epoch
         # softmax = nn.Softmax(dim=0)
+        soft_margin_loss = BatchHardSoftMarginTripletLoss()
 
         for i in range(epoch):
             for batch_num, (instance, labels, ind) in enumerate(data_loader):
@@ -243,7 +245,14 @@ class Manager(object):
 
                 # loss3 = criterion(features, new_matrix_labels_tensor)
 
-                loss = loss + 2.0*loss2 + 0.5*infoNCE_loss
+                # compute soft margin triplet loss
+                uniquie_labels = labels.unique()
+                if len(uniquie_labels) > 1:
+                    loss3 = soft_margin_loss(hidden, labels.to(self.config.device))
+                else:
+                    loss3 = 0.0
+
+                loss = loss + 2.0*loss2 + 0.5*infoNCE_loss + loss3
                 # if is_memory:
                 # loss3 = OnlineContrastiveLoss()
                 # loss3 = loss3(hidden, labels_des)
@@ -444,6 +453,7 @@ class Manager(object):
                     for sample in memory_samples[rel]:
                         sample_text = self._get_sample_text(self.config.training_data, sample['index'])
                         gen_samples = gen_data(self.r2desc, self.rel2id, sample_text, self.config.num_gen, self.config.gpt_temp, self.config.key)
+                        print(gen_samples)
                         gen_text += gen_samples
                 for sample in gen_text:
                     data_generation.append(sampler.tokenize(sample))
@@ -504,8 +514,10 @@ class Manager(object):
             print('cur_acc: ', cur_acc)
             print('his_acc: ', total_acc)
 
+
         torch.cuda.empty_cache()
         # save model
+        # torch.save(encoder.state_dict(), "./checkpoints/encoder.pth")
         return total_acc_num
 
 
@@ -556,7 +568,7 @@ if __name__ == '__main__':
     else:
         config.rel_index = './data/CFRLTacred/rel_index.npy'
         config.relation_name = './data/CFRLTacred/relation_name.txt'
-        config.relation_description = './data/CFRLTacred/relation_description.txt'
+        config.relation_description = './data/CFRLTacred/relation_description_detail.txt'
         if config.num_k == 5:
             config.rel_cluster_label = './data/CFRLTacred/CFRLdata_6_100_5_5/rel_cluster_label_0.npy'
             config.training_data = './data/CFRLTacred/CFRLdata_6_100_5_5/train_0.txt'
