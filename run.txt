@@ -1,0 +1,11 @@
+python train_wo_retriever.py --task_name FewRel --num_k 5 --num_gen 2 >> fewrel_wo_retriever.txt
+python train_wo_mi.py --task_name FewRel --num_k 5 --num_gen 2 >> fewrel_wo_mi.txt
+python train_wo_supcontrastive.py --task_name FewRel --num_k 5 --num_gen 2 >> fewrel_wo_supcontrastive.txt
+python train_wo_soft.py --task_name FewRel --num_k 5 --num_gen 2 >> fewrel_wo_soft.txt
+
+python train_wo_retriever.py --task_name Tacred --num_k 5 --num_gen 5 >> tacred_wo_retriever.txt
+python train_wo_mi.py --task_name Tacred --num_k 5 --num_gen 5 >> tacre_wo_mi.txt
+python train_wo_supcontrastive.py --task_name Tacred --num_k 5 --num_gen 5 >> tacred_wo_supcontrastive.txt
+python train_wo_soft.py --task_name Tacred --num_k 5 --num_gen 5 >> tacred_wo_soft.txt
+
+
